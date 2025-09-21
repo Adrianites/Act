@@ -4,7 +4,7 @@ import subprocess
 import os
 import json
 
-VIDEO_FORMATS = ["mp4", "avi", "mov", "webm", "gif", "mkv"]
+VIDEO_FORMATS = ["mp4", "avi", "mov", "webm", "mkv", "gif"]
 AUDIO_FORMATS = ["mp3", "wav", "flac", "aac", "ogg", "wma", "m4a"]
 IMAGE_FORMATS = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "ico"]
 
@@ -34,8 +34,18 @@ SETTINGS_FILE = "settings.json"
 
 
 class ConvertTab(ctk.CTkFrame):
+    def _log_error(self, msg):
+        if hasattr(self, '_main_window') and self._main_window and hasattr(self._main_window, 'log_error'):
+            self._main_window.log_error(msg)
     def __init__(self, master):
         super().__init__(master)
+        self._main_window = None
+        parent = master
+        while parent is not None:
+            if hasattr(parent, 'log_error'):
+                self._main_window = parent
+                break
+            parent = getattr(parent, 'master', None)
         ctk.CTkLabel(self, text="Convert Tool", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(18, 2))
 
         input_row = ctk.CTkFrame(self)
@@ -65,7 +75,12 @@ class ConvertTab(ctk.CTkFrame):
 
     def select_file(self):
         filetypes = [("All files", "*.*")]
-        file_path = filedialog.askopenfilename(title="Select file", filetypes=filetypes)
+        try:
+            file_path = filedialog.askopenfilename(title="Select file", filetypes=filetypes)
+        except Exception as e:
+            self._log_error(f"File dialog error: {e}")
+            messagebox.showerror("File Error", "Could not open file dialog.\n\nDetails: " + str(e))
+            return
         if file_path:
             self.input_entry.delete(0, "end")
             self.input_entry.insert(0, file_path)
@@ -73,21 +88,28 @@ class ConvertTab(ctk.CTkFrame):
             self.update_output_formats(file_path)
 
     def update_output_formats(self, file_path):
-        ext = os.path.splitext(file_path)[1][1:].lower()
-        file_type = EXT_TO_TYPE.get(ext)
-        if file_type == "video":
-            formats = VIDEO_FORMATS + AUDIO_FORMATS + IMAGE_FORMATS
-        elif file_type == "audio":
-            formats = AUDIO_FORMATS
-        elif file_type == "image":
-            formats = IMAGE_FORMATS
-        else:
-            formats = []
-        self.format_menu.configure(values=formats)
-        if formats:
-            self.format_var.set(formats[0])
-        else:
-            self.format_var.set("")
+        try:
+            ext = os.path.splitext(file_path)[1][1:].lower()
+            file_type = EXT_TO_TYPE.get(ext)
+            def dedup(seq):
+                seen = set()
+                return [x for x in seq if not (x in seen or seen.add(x))]
+            if file_type == "video":
+                formats = dedup(VIDEO_FORMATS + AUDIO_FORMATS + IMAGE_FORMATS)
+            elif file_type == "audio":
+                formats = dedup(AUDIO_FORMATS + IMAGE_FORMATS)
+            elif file_type == "image":
+                formats = dedup(IMAGE_FORMATS)
+            else:
+                formats = []
+            self.format_menu.configure(values=formats)
+            if formats:
+                self.format_var.set(formats[0])
+            else:
+                self.format_var.set("")
+        except Exception as e:
+            self._log_error(f"Update output formats error: {e}")
+            messagebox.showerror("Format Error", "Could not update output formats.\n\nDetails: " + str(e))
 
     def get_output_folder(self):
         if os.path.exists(SETTINGS_FILE):
@@ -126,9 +148,40 @@ class ConvertTab(ctk.CTkFrame):
         self.status_label.configure(text="Converting...", text_color="yellow")
         self.update_idletasks()
         try:
-            subprocess.run(['ffmpeg', '-y', '-i', input_file, output_file], check=True)
+            import sys
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            input_ext = os.path.splitext(input_file)[1][1:].lower()
+            is_video_to_image = EXT_TO_TYPE.get(input_ext) == "video" and output_format.lower() in IMAGE_FORMATS
+            if output_format.lower() == "ico":
+                probe = subprocess.run([
+                    'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                    '-show_entries', 'stream=width,height', '-of', 'csv=p=0', input_file
+                ], capture_output=True, text=True, creationflags=creationflags)
+                dims = probe.stdout.strip().split(',')
+                if len(dims) == 2:
+                    width, height = int(dims[0]), int(dims[1])
+                    if width > 256 or height > 256:
+                        scale_arg = f"scale='min(256,iw)':'min(256,ih)'"
+                        cmd = [
+                            'ffmpeg', '-y', '-i', input_file,
+                            '-vf', scale_arg,
+                            '-frames:v', '1', output_file
+                        ]
+                    else:
+                        cmd = ['ffmpeg', '-y', '-i', input_file, '-frames:v', '1', output_file]
+                else:
+                    cmd = ['ffmpeg', '-y', '-i', input_file, '-frames:v', '1', output_file]
+                subprocess.run(cmd, check=True, creationflags=creationflags)
+            elif is_video_to_image:
+                subprocess.run(['ffmpeg', '-y', '-i', input_file, '-frames:v', '1', output_file], check=True, creationflags=creationflags)
+            else:
+                subprocess.run(['ffmpeg', '-y', '-i', input_file, output_file], check=True, creationflags=creationflags)
             self.status_label.configure(text=f"Success! Saved to:\n{output_file}", text_color="green")
             messagebox.showinfo("Success", f"File converted to {output_file}")
         except Exception as e:
             self.status_label.configure(text="Conversion failed.", text_color="red")
             messagebox.showerror("Error", str(e))
+            if self._main_window and hasattr(self._main_window, 'log_error'):
+                self._main_window.log_error(f"[ConvertTab] {str(e)}")

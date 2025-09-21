@@ -33,6 +33,13 @@ EXT_TO_TYPE = {
 SETTINGS_FILE = "settings.json"
 
 class CompressTab(ctk.CTkFrame):
+    def _log_error(self, msg):
+        parent = getattr(self, 'master', None)
+        while parent is not None:
+            if hasattr(parent, 'log_error'):
+                parent.log_error(f"[CompressTab] {msg}")
+                break
+            parent = getattr(parent, 'master', None)
     def __init__(self, master):
         super().__init__(master)
         ctk.CTkLabel(self, text="Compress Tool", font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(18, 2))
@@ -79,7 +86,12 @@ class CompressTab(ctk.CTkFrame):
 
     def select_file(self):
         filetypes = [("All files", "*.*")]
-        file_path = filedialog.askopenfilename(title="Select file", filetypes=filetypes)
+        try:
+            file_path = filedialog.askopenfilename(title="Select file", filetypes=filetypes)
+        except Exception as e:
+            self._log_error(f"File dialog error: {e}")
+            messagebox.showerror("File Error", f"Could not open file dialog.\n\nDetails: {e}")
+            return
         if file_path:
             self.input_entry.delete(0, "end")
             self.input_entry.insert(0, file_path)
@@ -87,17 +99,21 @@ class CompressTab(ctk.CTkFrame):
             self.update_output_formats(file_path)
 
     def update_output_formats(self, file_path):
-        ext = os.path.splitext(file_path)[1][1:].lower()
-        file_type = EXT_TO_TYPE.get(ext)
-        if file_type == "video":
-            formats = VIDEO_FORMATS + AUDIO_FORMATS + IMAGE_FORMATS
-        elif file_type == "audio":
-            formats = AUDIO_FORMATS
-        elif file_type == "image":
-            formats = IMAGE_FORMATS
-        else:
-            formats = []
-        self.format_menu.configure(values=formats)
+        try:
+            ext = os.path.splitext(file_path)[1][1:].lower()
+            file_type = EXT_TO_TYPE.get(ext)
+            if file_type == "video":
+                formats = VIDEO_FORMATS + AUDIO_FORMATS + IMAGE_FORMATS
+            elif file_type == "audio":
+                formats = AUDIO_FORMATS
+            elif file_type == "image":
+                formats = IMAGE_FORMATS
+            else:
+                formats = []
+            self.format_menu.configure(values=formats)
+        except Exception as e:
+            self._log_error(f"Update output formats error: {e}")
+            messagebox.showerror("Format Error", f"Could not update output formats.\n\nDetails: {e}")
         if formats:
             self.format_var.set(formats[0])
         else:
@@ -207,5 +223,6 @@ class CompressTab(ctk.CTkFrame):
             )
             messagebox.showinfo("Success", f"File compressed to {actual_size:.2f} MB\nSaved to: {output_file}")
         except Exception as e:
+            self._log_error(f"[WinError] {e}")
             self.status_label.configure(text="Compression failed.", text_color="red")
             messagebox.showerror("Error", str(e))

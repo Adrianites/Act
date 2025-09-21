@@ -41,6 +41,14 @@ class SettingsTab(ctk.CTkFrame):
         self.status_label = ctk.CTkLabel(self, text="", text_color="green", font=ctk.CTkFont(size=12))
         self.status_label.pack(pady=(0, 5))
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=40, pady=(20, 10))
+        ctk.CTkButton(footer, text="Show Logs", width=120, command=self.show_logs).pack(anchor="e")
+
+    def show_logs(self):
+        if hasattr(self.main_window, 'show_error_log'):
+            self.main_window.show_error_log()
+
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
             try:
@@ -59,8 +67,8 @@ class SettingsTab(ctk.CTkFrame):
                 json.dump(self.settings, f, indent=4)
             self.status_label.configure(text="Settings saved!", text_color="green")
         except Exception as e:
-            self.status_label.configure(text="Failed to save settings.", text_color="red")
-            messagebox.showerror("Error", str(e))
+            self.status_label.configure(text="Could not save settings.", text_color="red")
+            messagebox.showerror("Settings Error", "Could not save your settings. Please check file permissions or disk space.\n\nDetails: " + str(e))
 
     def select_folder(self):
         folder = filedialog.askdirectory(title="Select output folder")

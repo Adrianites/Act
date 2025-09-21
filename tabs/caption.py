@@ -6,15 +6,23 @@ import os
 from PIL import Image
 import json
 
-CAPTION_INPUT_FORMATS = ["mp4", "avi", "mov", "webm", "gif", "mkv", "png", "jpg", "jpeg"]
-CAPTION_OUTPUT_FORMATS = ["gif", "png", "jpg", "jpeg"]
+def dedup(seq):
+    seen = set()
+    return [x for x in seq if not (x in seen or seen.add(x))]
+
+CAPTION_INPUT_FORMATS = dedup(["mp4", "avi", "mov", "webm", "gif", "mkv", "png", "jpg", "jpeg"])
+CAPTION_OUTPUT_FORMATS = dedup(["gif", "png", "jpg", "jpeg"])
 FONT_COLORS = ["white", "black", "red", "yellow", "green", "blue", "orange", "purple", "cyan"]
 BORDER_COLORS = ["black", "white", "red", "yellow", "green", "blue", "orange", "purple", "cyan"]
-POSITIONS = ["bottom", "center", "top"]
+POSITIONS = ["top", "center", "bottom"]
 SETTINGS_FILE = "settings.json"
 
 
 class CaptionTab(ctk.CTkFrame):
+    def _log_error(self, msg):
+        parent = getattr(self, 'main_window', None)
+        if parent and hasattr(parent, 'log_error'):
+            parent.log_error(f"[CaptionTab] {msg}")
     def __init__(self, master, main_window):
         super().__init__(master, fg_color="transparent")
         self.main_window = main_window
@@ -278,13 +286,13 @@ class CaptionTab(ctk.CTkFrame):
         border_width = self.border_width_var.get()
         position = self.position_var.get()
         if not input_file or not os.path.exists(input_file):
-            messagebox.showwarning("No file", "Please select a valid input file.")
+            messagebox.showwarning("Missing File", "Select a valid input file to add a caption.")
             return
         if not caption_text:
-            messagebox.showwarning("No caption", "Please enter a caption.")
+            messagebox.showwarning("Missing Caption", "Type a caption to add to your file.")
             return
         if not output_name:
-            messagebox.showwarning("No output name", "Please enter an output file name.")
+            messagebox.showwarning("Missing Output Name", "Enter a name for the output file.")
             return
         if not output_name.lower().endswith(f".{output_format}"):
             output_name += f".{output_format}"
@@ -323,11 +331,12 @@ class CaptionTab(ctk.CTkFrame):
             ]
             subprocess.run(ffmpeg_cmd, check=True)
             self.status_label.configure(text=f"Done! Saved to: {output_file}", text_color="green")
-            messagebox.showinfo("Success", f"Captioned file saved to: {output_file}")
+            messagebox.showinfo("Success", f"Your captioned file was saved to:\n{output_file}")
 
             self._preview_path = output_file
             if self.preview_shown:
                 self.show_preview(output_file, right=True)
         except Exception as e:
-            self.status_label.configure(text="Captioning failed.", text_color="red")
-            messagebox.showerror("Error", str(e))
+            self._log_error(f"[WinError] {e}")
+            self.status_label.configure(text="Could not add caption.", text_color="red")
+            messagebox.showerror("Caption Error", "Something went wrong while adding the caption. Please check your input file and try again.\n\nDetails: " + str(e))
